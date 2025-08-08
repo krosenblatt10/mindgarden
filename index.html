@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <title>MindGarden</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="MindGarden">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <style>
+    :root { --bg:#0c1116; --card:#141b23; --text:#eaf1fb; --muted:#a6b6cc; --accent:#7ad3a1; --accent2:#6ab7ff; --warn:#ffd36a; }
+    *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+    header{position:sticky;top:0;padding:16px 16px 8px;background:linear-gradient(180deg,#0c1116,#0c111600);backdrop-filter: blur(6px)}
+    h1{margin:0;font-size:22px}
+    #app{padding:12px;max-width:900px;margin:0 auto}
+    .card{background:var(--card);border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button{appearance:none;border:none;border-radius:12px;padding:12px 14px;background:#1b2531;color:var(--text);font-weight:600}
+    button.primary{background:var(--accent);color:#03170c}
+    button.alt{background:var(--accent2);color:#001a33}
+    button.warn{background:var(--warn);color:#392a00}
+    .tiny{font-size:12px;color:var(--muted)}
+    .pill{padding:6px 10px;border-radius:999px;background:#1a2330;color:var(--muted);font-size:12px}
+    .progress{height:8px;background:#0e1620;border-radius:999px;overflow:hidden}
+    .progress-inner{height:100%;background:var(--accent);width:0%}
+    label{display:block;margin:6px 0 4px}
+    input[type=range]{width:100%}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    .center{display:flex;justify-content:center;align-items:center}
+    canvas{width:100%;height:140px;background:#0f1620;border-radius:12px}
+    .footer{opacity:.7;font-size:12px;text-align:center;padding:20px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>🌱 MindGarden</h1>
+  <div class="tiny">A tiny game that teaches meditation</div>
+</header>
+<div id="app">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div>Streak: <span id="streak">0</span> days</div>
+        <div class="tiny">XP: <span id="xp">0</span></div>
+      </div>
+      <div class="pill">Session: <span id="minutesLabel">3</span> min</div>
+    </div>
+    <div class="progress"><div id="progress" class="progress-inner"></div></div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="btnStart">Start Session</button>
+      <button id="btnPause">Pause</button>
+      <button id="btnReset">Reset</button>
+    </div>
+    <div class="row">
+      <label for="minutes">Length</label>
+      <input id="minutes" type="range" min="1" max="20" value="3">
+      <label for="pace">Breath pace (sec in/out)</label>
+      <input id="pace" type="range" min="3" max="8" value="4">
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🫁 Breath Pacer</h3>
+    <canvas id="pacer" width="600" height="180" aria-label="Breathing pacer animation"></canvas>
+    <div class="center tiny" id="breathCue">Inhale</div>
+    <div class="row" style="margin-top:8px">
+      <button class="alt" id="soundOn">Sound On</button>
+      <button id="soundOff">Sound Off</button>
+      <div class="pill">Sound: <span id="soundLabel">Off</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎮 Mini-Games</h3>
+    <div class="grid">
+      <button id="mindGarden">Mind Garden</button>
+      <button id="focusBubble">Focus Bubble</button>
+      <button id="labelThoughts">Label Thoughts</button>
+      <button id="bodyScan">Body Scan</button>
+    </div>
+    <div class="tiny" style="margin-top:8px" id="gameHint">Choose a mini-game to practice a skill.</div>
+  </div>
+
+  <div class="card">
+    <h3>🎯 Daily Quest</h3>
+    <div id="questText">Sit for 3 minutes with 4–4 breathing. Tap "I did it" after.</div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="btnDidIt">I did it ✅ (+10 XP)</button>
+      <button class="warn" id="btnNewQuest">New Quest</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎧 Soundscapes</h3>
+    <div class="row">
+      <button data-snd="ocean">Ocean</button>
+      <button data-snd="rain">Rain</button>
+      <button data-snd="brown">Brown Noise</button>
+      <button id="stopSnd">Stop</button>
+    </div>
+    <label for="vol">Volume</label>
+    <input id="vol" type="range" min="0" max="100" value="35">
+  </div>
+
+  <div class="footer">Tip: Add to Home Screen in Safari for an app-like experience. Works offline.</div>
+</div>
+
+<script>
+// --- State ---
+const S = JSON.parse(localStorage.getItem('mg_state')||'{}');
+S.xp = S.xp||0;
+S.streak = S.streak||0;
+S.lastDay = S.lastDay||null;
+S.sound = S.sound||false;
+
+const xpEl = document.getElementById('xp');
+const streakEl = document.getElementById('streak');
+const progressEl = document.getElementById('progress');
+const minutes = document.getElementById('minutes');
+const minutesLabel = document.getElementById('minutesLabel');
+const pace = document.getElementById('pace');
+const canvas = document.getElementById('pacer');
+const ctx = canvas.getContext('2d');
+const breathCue = document.getElementById('breathCue');
+const soundLabel = document.getElementById('soundLabel');
+
+function save(){ localStorage.setItem('mg_state', JSON.stringify(S)); }
+function setXP(v){ S.xp = v; xpEl.textContent = S.xp; save(); }
+function setStreak(v){ S.streak=v; streakEl.textContent = S.streak; save(); }
+function todayKey(){ return new Date().toISOString().slice(0,10); }
+
+xpEl.textContent = S.xp;
+streakEl.textContent = S.streak;
+minutesLabel.textContent = minutes.value;
+
+// --- Timer & Pacer ---
+let running=false, startTime=0, totalMs=minutes.value*60*1000, elapsed=0, rafId=null;
+let phase='inhale', phaseStart=0;
+
+function drawPacer(){
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle = '#0b131c'; ctx.fillRect(0,0,w,h);
+  const paceSec = parseInt(pace.value,10);
+  const phaseDur = paceSec*1000;
+  const t = performance.now() - phaseStart;
+  let p = Math.min(t/phaseDur,1);
+  let r = 20;
+  if(phase==='inhale'){ r = 20 + 60*p; }
+  if(phase==='hold1'){ r = 80; }
+  if(phase==='exhale'){ r = 80 - 60*p; }
+  if(phase==='hold2'){ r = 20; }
+  ctx.beginPath(); ctx.arc(w/2,h/2,r,0,Math.PI*2);
+  ctx.fillStyle = '#7ad3a1'; ctx.globalAlpha = 0.8; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#eaf1fb'; ctx.font = '16px -apple-system,system-ui,Segoe UI,Roboto';
+  ctx.textAlign='center';
+  ctx.fillText(phase.toUpperCase(), w/2, h/2 + r + 18);
+}
+
+function tick(){
+  if(!running){ return; }
+  const now = performance.now();
+  elapsed = now - startTime;
+  const pct = Math.max(0, Math.min(1, elapsed/totalMs));
+  progressEl.style.width = (pct*100)+'%';
+  const paceSec = parseInt(pace.value,10);
+  const phaseDur = paceSec*1000;
+  const t = now - phaseStart;
+  if(t >= phaseDur){
+    if(phase==='inhale'){ phase='hold1'; }
+    else if(phase==='hold1'){ phase='exhale'; }
+    else if(phase==='exhale'){ phase='hold2'; }
+    else if(phase==='hold2'){ phase='inhale'; }
+    phaseStart = now;
+    breathCue.textContent = (phase==='inhale'?'Inhale':phase==='exhale'?'Exhale':'Hold');
+    playCue();
+  }
+  drawPacer();
+  if(elapsed >= totalMs){
+    completeSession();
+  }else{
+    rafId = requestAnimationFrame(tick);
+  }
+}
+
+function startSession(){
+  if(running) return;
+  running = true;
+  startTime = performance.now(); totalMs = minutes.value*60*1000;
+  phase='inhale'; phaseStart = startTime; breathCue.textContent='Inhale';
+  playCue();
+  rafId = requestAnimationFrame(tick);
+}
+function pauseSession(){ running=false; if(rafId) cancelAnimationFrame(rafId); }
+function resetSession(){ pauseSession(); elapsed=0; progressEl.style.width='0%'; }
+function completeSession(){
+  pauseSession();
+  setXP(S.xp + Math.max(5, Math.round(minutes.value*3)));
+  const today = todayKey();
+  if(S.lastDay !== today){ setStreak(S.streak + 1); S.lastDay = today; save(); }
+  alert('Nice work. Session complete!');
+}
+
+document.getElementById('btnStart').onclick = startSession;
+document.getElementById('btnPause').onclick = pauseSession;
+document.getElementById('btnReset').onclick = resetSession;
+minutes.addEventListener('input', ()=> minutesLabel.textContent = minutes.value);
+
+// --- WebAudio for cues and soundscapes ---
+const AC = window.AudioContext || window.webkitAudioContext;
+const audio = new AC();
+let sndGain = audio.createGain(); sndGain.connect(audio.destination); sndGain.gain.value = 0.35;
+
+function playCue(){
+  if(!S.sound) return;
+  const t = audio.currentTime + 0.01;
+  const o = audio.createOscillator(); const g = audio.createGain();
+  o.type='sine'; o.frequency.value = (phase==='inhale'?440:(phase==='exhale'?392:523));
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.2,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.15);
+  o.connect(g); g.connect(audio.destination);
+  o.start(t); o.stop(t+0.2);
+}
+
+document.getElementById('soundOn').onclick = ()=>{ S.sound=true; soundLabel.textContent='On'; save(); };
+document.getElementById('soundOff').onclick = ()=>{ S.sound=false; soundLabel.textContent='Off'; save(); };
+
+const vol = document.getElementById('vol');
+vol.addEventListener('input', ()=> sndGain.gain.value = vol.value/100);
+
+// Soundscapes
+let noiseNode=null; let ocean=null; let rain=null;
+function stopAll(){
+  if(noiseNode){ noiseNode.disconnect(); noiseNode = null; }
+  if(ocean){ ocean.stop(); ocean.disconnect(); ocean=null; }
+  if(rain){ rain.stop(); rain.disconnect(); rain=null; }
+}
+function startBrownNoise(){
+  stopAll();
+  const bufferSize = 2 * audio.sampleRate;
+  const node = audio.createScriptProcessor(bufferSize, 1, 1);
+  let lastOut = 0.0;
+  node.onaudioprocess = function(e) {
+    const output = e.outputBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      output[i] = (lastOut + (0.02 * white)) / 1.02;
+      lastOut = output[i]; output[i] *= 0.5;
+    }
+  };
+  node.connect(sndGain); noiseNode = node;
+}
+function startOcean(){
+  stopAll();
+  // simple swell using LFO
+  const lfo = audio.createOscillator(); lfo.type='sine'; lfo.frequency.value = 0.15;
+  const g = audio.createGain(); g.gain.value = 0.0;
+  lfo.connect(g.gain); g.connect(sndGain); lfo.start();
+  ocean = g;
+}
+function startRain(){
+  stopAll();
+  const bufferSize = 2 * audio.sampleRate;
+  const node = audio.createScriptProcessor(bufferSize, 1, 1);
+  node.onaudioprocess = function(e) {
+    const out = e.outputBuffer.getChannelData(0);
+    for (let i=0;i<bufferSize;i++){ out[i] = (Math.random()*2-1)*0.12; }
+  };
+  node.connect(sndGain); rain = node;
+}
+document.querySelectorAll('[data-snd]').forEach(btn=>{
+  btn.onclick = ()=>{
+    const which = btn.dataset.snd;
+    if(which==='ocean') startOcean();
+    if(which==='rain') startRain();
+    if(which==='brown') startBrownNoise();
+  };
+});
+document.getElementById('stopSnd').onclick = stopAll;
+
+// --- Mini-games ---
+const gameHint = document.getElementById('gameHint');
+document.getElementById('mindGarden').onclick = ()=>{
+  gameHint.textContent = "Mind Garden: Each inhale grows the circle; each exhale shrinks it. Label distractions and return. +1 XP per full breath.";
+};
+document.getElementById('focusBubble').onclick = ()=>{
+  gameHint.textContent = "Focus Bubble: Gaze softly at the circle for 30s. If eyes drift, blink, reset, continue. +5 XP if you finish.";
+};
+document.getElementById('labelThoughts').onclick = ()=>{
+  gameHint.textContent = "Label Thoughts: Tap when a thought pops up and say (Planning, Worry, Memory, Other). +1 XP per label.";
+};
+document.getElementById('bodyScan').onclick = ()=>{
+  gameHint.textContent = "Body Scan: Move attention crown→toes on each breath. Release on exhale. +10 XP when you finish.";
+};
+
+// --- Daily Quest ---
+const QUESTS = [
+  "Sit 3 min with 4–4 breathing. Tap 'I did it' when done.",
+  "Do a 5-min body scan. If mind wanders, mark it and return.",
+  "Practice Label Thoughts for 15 labels total.",
+  "Complete 10 slow breaths (6–6).",
+  "Try open monitoring: drop all goals for 3 minutes."
+];
+let questIndex = S.questIndex||0;
+function setQuest(i){
+  questIndex = i % QUESTS.length; S.questIndex = questIndex; save();
+  document.getElementById('questText').textContent = QUESTS[questIndex];
+}
+setQuest(questIndex);
+document.getElementById('btnNewQuest').onclick = ()=> setQuest(questIndex+1);
+document.getElementById('btnDidIt').onclick = ()=>{
+  setXP(S.xp + 10);
+  const today = todayKey();
+  if(S.lastDay !== today){ setStreak(S.streak + 1); S.lastDay = today; save(); }
+};
+
+// Init
+drawPacer();
+soundLabel.textContent = S.sound?'On':'Off';
+</script>
+
+<!-- PWA -->
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js'));
+}
+</script>
+</body>
+</html>
+
+Displaying index.html.
